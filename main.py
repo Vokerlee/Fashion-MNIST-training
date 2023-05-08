@@ -1,4 +1,21 @@
 import numpy as np
+import imageio
+import matplotlib
+import os
+
+from IPython.core.interactiveshell import InteractiveShell
+InteractiveShell.ast_node_interactivity = "all"
+from IPython import display
+from pathlib import Path
+
+from matplotlib import pyplot as plt
+from matplotlib.gridspec  import GridSpec
+from matplotlib.ticker    import MaxNLocator
+
+from collections import defaultdict
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +24,22 @@ import torchvision.transforms as transforms
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import FashionMNIST
 
+matplotlib.rcParams['axes.formatter.limits'] = (-5, 4)
+
+MAX_LOCATOR_NUMBER = 10
+FIGURE_XSIZE = 10
+FIGURE_YSIZE = 8
+
+BACKGROUND_RGB = '#F5F5F5'
+MAJOR_GRID_RGB = '#919191'
+
+LEGEND_FRAME_ALPHA = 0.95
+
+def set_axis_properties(axes):
+    axes.xaxis.set_major_locator(MaxNLocator(MAX_LOCATOR_NUMBER))
+    axes.minorticks_on()
+    axes.grid(which='major', linewidth=2, color=MAJOR_GRID_RGB)
+    axes.grid(which='minor', linestyle=':')
 
 class ConvBlock(nn.Module):
     def __init__(self, ch_in, ch_out, stride):
@@ -17,11 +50,9 @@ class ConvBlock(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, input):
-        x = self.conv(input)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
+        conv_out = self.conv(input)
+        batch_norm_out = self.bn(conv_out)
+        return self.relu(batch_norm_out)
 
 class NeuralNet(nn.Module):
     def __init__(self, num_classes=10):
@@ -38,19 +69,26 @@ class NeuralNet(nn.Module):
 
         self.backbone = nn.Sequential(*block_list)
 
-        self.head = nn.Linear(layer_config[-1][0], num_classes)
+        bottleneck_channel = 2
+        self.bottleneck = nn.Linear(layer_config[-1][0], bottleneck_channel)
+        self.head       = nn.Linear(bottleneck_channel, num_classes)
+
+        self.softmax = nn.Softmax()
 
     def forward(self, input):
         featuremap = self.backbone(input)
         squashed = F.adaptive_avg_pool2d(featuremap, output_size=(1, 1))
         squeezed = squashed.view(squashed.shape[0], -1)
-        pred = self.head(squeezed)
+
+        self.bottleneck_out = self.bottleneck(squeezed)
+        pred = self.head(self.bottleneck_out)
+
+        self.softmax_vals = self.softmax(pred)
         return pred
 
     @classmethod
     def loss(cls, pred, gt):
         return F.cross_entropy(pred, gt)
-
 
 class Trainer:
     def __init__(self):
@@ -64,18 +102,29 @@ class Trainer:
             transforms.ToTensor(),
         ])
 
-        train_dataset = FashionMNIST("./data", train=True,
-                                     transform=self.train_transform,
-                                     download=True)
-        val_dataset = FashionMNIST("./data", train=False,
-                                   transform=self.val_transform,
-                                   download=True)
+        self.train_dataset = FashionMNIST("./data", train=True,
+                                          transform=self.train_transform,
+                                          download=True)
+        self.val_dataset = FashionMNIST("./data", train=False,
+                                        transform=self.val_transform,
+                                        download=True)
+
+        self.fixed_samples = defaultdict(list)
+        self.index_to_class = {index: image for image, index in self.val_dataset.class_to_idx.items()}
+
+        n_samples_per_class = 10 # total 10 classes
+        for sample in self.val_dataset:
+            class_label = sample[1]
+            if len(self.fixed_samples[class_label]) < n_samples_per_class:
+                self.fixed_samples[class_label].append(sample)
+
+        self.class_sequence = [self.index_to_class[key] for key in self.fixed_samples.keys()]
 
         batch_size = 1024
-        self.train_loader = data.DataLoader(train_dataset,
+        self.train_loader = data.DataLoader(self.train_dataset,
                                             batch_size=batch_size,
                                             shuffle=True, num_workers=4)
-        self.val_loader = data.DataLoader(val_dataset, batch_size=batch_size,
+        self.val_loader = data.DataLoader(self.val_dataset, batch_size=batch_size,
                                           shuffle=False, num_workers=4)
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -85,14 +134,15 @@ class Trainer:
 
         self.logger = SummaryWriter()
         self.i_batch = 0
+        self.i_epoch = 0
 
-    def train(self):
+        self.gifs_list = []
 
-        num_epochs = 100
+    def train(self, n_epochs):
 
         optimizer = torch.optim.Adam(self.net.parameters(), lr=1e-3)
 
-        for i_epoch in range(num_epochs):
+        for i_epoch in range(n_epochs):
             self.net.train()
 
             for feature_batch, gt_batch in self.train_loader:
@@ -111,18 +161,27 @@ class Trainer:
                 if self.i_batch % 100 == 0:
                     print(f"batch={self.i_batch} loss={loss.item():.6f}")
 
+                # Samples visualization
+                if self.i_batch % 10 == 0:
+                  self.net.eval()
+                  self.visualize()
+                  self.net.train()
+
                 self.i_batch += 1
 
+            self.i_epoch = i_epoch
             self.validate()
 
             torch.save(self.net, "model.pth")
 
-    def validate(self):
+    def validate(self, show_conf_matrix=False, show_hard_samples=False):
         self.net.eval()
 
         loss_all = []
         pred_all = []
         gt_all = []
+        softmax_all = []
+
         for feature_batch, gt_batch in self.val_loader:
             feature_batch = feature_batch.to(self.device)
             gt_batch = gt_batch.to(self.device)
@@ -130,28 +189,89 @@ class Trainer:
             with torch.no_grad():
                 pred_batch = self.net(feature_batch)
                 loss = NeuralNet.loss(pred_batch, gt_batch)
+                softmax_batch = self.net.softmax_vals
 
             loss_all.append(loss.item())
             pred_all.append(pred_batch.cpu().numpy())
             gt_all.append(gt_batch.cpu().numpy())
+            softmax_all.append(softmax_batch.cpu().numpy())
 
         loss_mean = np.mean(np.array(loss_all))
         pred_all = np.argmax(np.concatenate(pred_all, axis=0), axis=1)
         gt_all = np.concatenate(np.array(gt_all))
+        softmax_all = np.concatenate(np.array(softmax_all))
+
+        if show_conf_matrix == True:
+            pass # In progress
+
+        # Show top-5 hardest samples for each class
+        if show_hard_samples == True:
+            pass # In progress
 
         accuracy = np.sum(np.equal(pred_all, gt_all)) / len(pred_all)
 
         self.logger.add_scalar("val/loss", loss_mean, self.i_batch)
         self.logger.add_scalar("val/accuracy", accuracy, self.i_batch)
 
-        print(f"Val_loss={loss_mean} val_accu={accuracy:.6f}")
+        print(f"Val_loss={loss_mean} val_accuracy={accuracy:.6f}")
 
+    def visualize(self):
+        colors = ['green', 'cyan', 'magenta', 'blue', 'purple', \
+                  'pink', 'orange', 'yellow', 'red', 'lime']
+
+        figure = plt.figure(figsize=(FIGURE_XSIZE, FIGURE_YSIZE), facecolor=BACKGROUND_RGB)
+        gs = GridSpec(ncols=1, nrows=1, figure=figure)
+        axes = figure.add_subplot(gs[0, 0])
+        set_axis_properties(axes)
+
+        axes.set_xlim(-50, 50)
+        axes.set_ylim(-50, 50)
+        axes.set_title(f"Epoch {self.i_epoch}, batch {self.i_batch}")
+
+        x = []
+        y = []
+
+        for index, sample in self.fixed_samples.items():
+            flatten_samples = [sample[i][0][None, :, :, :] for i in range(len(sample))]
+            feature_batch = torch.cat(flatten_samples, 0).to(self.device)
+
+            with torch.no_grad():
+                pred = self.net(feature_batch).to(self.device)
+
+            x = self.net.bottleneck_out[:, 0].cpu().detach().numpy()
+            y = self.net.bottleneck_out[:, 1].cpu().detach().numpy()
+
+            axes.scatter(x, y, c=colors[index])
+
+        axes.legend(self.class_sequence,
+                    framealpha=LEGEND_FRAME_ALPHA,
+                    bbox_to_anchor=(1.1, 1.05))
+
+        filename = f"epoch_{self.i_epoch}_batch_{self.i_batch}.png"
+        if not os.path.exists("epoch_visualization"):
+            os.makedirs("epoch_visualization")
+
+        figure.savefig("epoch_visualization/" + filename)
+        plt.close(figure)
+
+        self.gifs_list.append("epoch_visualization/" + filename)
 
 def main():
     trainer = Trainer()
-    trainer.train()
-    print("Done!")
+    trainer.train(n_epochs=25)
 
+    images = []
+    for filename in trainer.gifs_list:
+        image = imageio.imread(filename)
+        images.append(image)
+
+    imageio.mimsave('information_bottleneck.gif', images, duration = 0.2)
+
+    # gifPath = Path("information_bottleneck.gif")
+    # with open(gifPath,'rb') as f:
+    #     display.Image(data=f.read(), format='png')
+
+    trainer.validate(show_conf_matrix=True, show_hard_samples=True)
 
 if __name__ == "__main__":
     main()
