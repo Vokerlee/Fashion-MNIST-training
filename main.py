@@ -109,16 +109,16 @@ class Trainer:
                                         transform=self.val_transform,
                                         download=True)
 
-        self.fixed_samples = defaultdict(list)
-        self.index_to_class = {index: image for image, index in self.val_dataset.class_to_idx.items()}
+        self.val_dataset_fixed_dict = defaultdict(list)
+        self.index_to_val = {index: image for image, index in self.val_dataset.class_to_idx.items()}
 
         n_samples_per_class = 10 # total 10 classes
         for sample in self.val_dataset:
             class_label = sample[1]
-            if len(self.fixed_samples[class_label]) < n_samples_per_class:
-                self.fixed_samples[class_label].append(sample)
+            if len(self.val_dataset_fixed_dict[class_label]) < n_samples_per_class:
+                self.val_dataset_fixed_dict[class_label].append(sample)
 
-        self.class_sequence = [self.index_to_class[key] for key in self.fixed_samples.keys()]
+        self.val_dataset_fixed = [self.index_to_val[key] for key in self.val_dataset_fixed_dict.keys()]
 
         batch_size = 1024
         self.train_loader = data.DataLoader(self.train_dataset,
@@ -202,11 +202,37 @@ class Trainer:
         softmax_all = np.concatenate(np.array(softmax_all))
 
         if show_conf_matrix == True:
-            pass # In progress
+            conf_matrix = confusion_matrix(gt_all, pred_all)
+            disp = ConfusionMatrixDisplay(conf_matrix, display_labels=self.val_dataset_fixed)
+            figure, axes = plt.subplots(figsize=(FIGURE_XSIZE, FIGURE_XSIZE))
+            disp.plot(ax=axes)
+            plt.savefig("confusion_matrix.png")
 
         # Show top-5 hardest samples for each class
         if show_hard_samples == True:
-            pass # In progress
+            if not os.path.exists(f"hard_samples"):
+                os.mkdir(f"hard_samples")
+
+            mis_classifications_indixes = [index for index in range(0, len(gt_all)) if pred_all[index] != gt_all[index]]
+            class_misclassifications = defaultdict(list)
+            for index in mis_classifications_indixes:
+                class_label = self.val_dataset[index][1]
+                class_misclassifications[class_label].append([index, softmax_all[index]])
+
+            for class_label in range(0, len(self.val_dataset_fixed_dict)):
+                current_class_misses = sorted(class_misclassifications[class_label], key=lambda x: max(x[1]), reverse=True)
+                for i in range(0, min(5, len(current_class_misses))):
+                    miss_label = np.argmax(current_class_misses[i][1])
+
+                    current_sample = self.val_dataset[current_class_misses[i][0]]
+                    if not os.path.exists(f"hard_samples/class_label_{class_label + 1}"):
+                        os.mkdir(f"hard_samples/class_label_{class_label + 1}")
+
+                    plt.imsave(f"hard_samples/class_label_{class_label + 1}/miss_label_{miss_label + 1}_{i + 1}.png", current_sample[0][0])
+                    file_softmax = open(f"hard_samples/class_label_{class_label + 1}/miss_label_{miss_label + 1}_{i + 1}.txt", "w+")
+                    file_softmax.write(f"softmax = {current_class_misses[i][1][miss_label]}")
+                    file_softmax.close()
+
 
         accuracy = np.sum(np.equal(pred_all, gt_all)) / len(pred_all)
 
@@ -231,7 +257,7 @@ class Trainer:
         x = []
         y = []
 
-        for index, sample in self.fixed_samples.items():
+        for index, sample in self.val_dataset_fixed_dict.items():
             flatten_samples = [sample[i][0][None, :, :, :] for i in range(len(sample))]
             feature_batch = torch.cat(flatten_samples, 0).to(self.device)
 
@@ -243,7 +269,7 @@ class Trainer:
 
             axes.scatter(x, y, c=colors[index])
 
-        axes.legend(self.class_sequence,
+        axes.legend(self.val_dataset_fixed,
                     framealpha=LEGEND_FRAME_ALPHA,
                     bbox_to_anchor=(1.1, 1.05))
 
@@ -258,7 +284,7 @@ class Trainer:
 
 def main():
     trainer = Trainer()
-    trainer.train(n_epochs=25)
+    trainer.train(n_epochs=100)
 
     images = []
     for filename in trainer.gifs_list:
@@ -266,10 +292,6 @@ def main():
         images.append(image)
 
     imageio.mimsave('information_bottleneck.gif', images, duration = 0.2)
-
-    # gifPath = Path("information_bottleneck.gif")
-    # with open(gifPath,'rb') as f:
-    #     display.Image(data=f.read(), format='png')
 
     trainer.validate(show_conf_matrix=True, show_hard_samples=True)
 
