@@ -271,7 +271,13 @@ class Trainer:
 
         axes.legend(self.val_dataset_fixed,
                     framealpha=LEGEND_FRAME_ALPHA,
-                    bbox_to_anchor=(1.1, 1.05))
+                    bbox_to_anchor=(1.15, 1.00))
+
+        axes.legend(self.val_dataset_fixed,
+                    framealpha=LEGEND_FRAME_ALPHA,
+                bbox_to_anchor=(1.15, 1.00))
+
+        figure.tight_layout()
 
         filename = f"epoch_{self.i_epoch}_batch_{self.i_batch}.png"
         if not os.path.exists("epoch_visualization"):
