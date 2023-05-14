@@ -5,9 +5,14 @@
 Information bottleneck layer is a penultimate layer in layer chain.
 Training model with 10 classes, 10 samples per class, plot information bottleneck points.
 
+We can see that points model is "developing" and points are moving away from the center.
+
 <img src="information_bottleneck.gif" width="650"/>
 
 ## Confusion matrix
+
+Confusion matrix diagonally predominates, but `Sneakers` value is lower than it is expected,
+because they are sometimes predicted as `Ankle boots`, which is normal from human's point of view.
 
 <img src="confusion_matrix.png" width="650"/>
 
@@ -25,3 +30,9 @@ Training model with 10 classes, 10 samples per class, plot information bottlenec
 |   Sneaker  | ![Ankle boot](./hard_neg/Sneaker/hard_neg_1(Ankle%20boot).png) (Ankle boot) |    ![Sandal](./hard_neg/Sneaker/hard_neg_2(Sandal).png) (Sandal)    | ![Ankle boot](./hard_neg/Sneaker/hard_neg_3(Ankle%20boot).png) (Ankle boot) | ![Ankle boot](./hard_neg/Sneaker/hard_neg_4(Ankle%20boot).png) (Ankle boot) |        ![Bag](./hard_neg/Sneaker/hard_neg_5(Bag).png) (Bag)        |
 |   T-shirt  |     ![Pullover](./hard_neg/T-shirt/hard_neg_1(Pullover).png) (Pullover)     | ![Pullover](./hard_neg/T-shirt/hard_neg_2(Pullover).png) (Pullover) |          ![Dress](./hard_neg/T-shirt/hard_neg_3(Dress).png) (Dress)         |          ![Dress](./hard_neg/T-shirt/hard_neg_4(Dress).png) (Dress)         |    ![Sandal](./hard_neg/T-shirt/hard_neg_5(Sandal).png) (Sandal)   |
 |   Trouser  |          ![Dress](./hard_neg/Trouser/hard_neg_1(Dress).png) (Dress)         |      ![Dress](./hard_neg/Trouser/hard_neg_2(Dress).png) (Dress)     |          ![Dress](./hard_neg/Trouser/hard_neg_3(Dress).png) (Dress)         |          ![Dress](./hard_neg/Trouser/hard_neg_4(Dress).png) (Dress)         |     ![Dress](./hard_neg/Trouser/hard_neg_5(Dress).png) (Dress)     |
+
+We can see that all mispredicted samples are very similar to the true ones, for example:
+    * `Ankle boots` to `Sneakers`,  to `Sandals` to `Sneakers`.
+    * `Pullover` to `Coat`, `Dress` to `Pullover`, `Coat` to `Pullover` and `Shirt`
+    * `Trousers` to `Dress`.
+    * `Bag` is predicted both as `T-shirt`, `Dress`, `Sandals`, etc, due to unusual shape in comparison with other classes.
