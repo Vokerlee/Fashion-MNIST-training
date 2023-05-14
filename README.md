@@ -32,7 +32,7 @@ because they are sometimes predicted as `Ankle boots`, which is normal from huma
 |   Trouser  |          ![Dress](./hard_neg/Trouser/hard_neg_1(Dress).png) (Dress)         |      ![Dress](./hard_neg/Trouser/hard_neg_2(Dress).png) (Dress)     |          ![Dress](./hard_neg/Trouser/hard_neg_3(Dress).png) (Dress)         |          ![Dress](./hard_neg/Trouser/hard_neg_4(Dress).png) (Dress)         |     ![Dress](./hard_neg/Trouser/hard_neg_5(Dress).png) (Dress)     |
 
 We can see that all mispredicted samples are very similar to the true ones, for example:
-    * `Ankle boots` to `Sneakers`,  to `Sandals` to `Sneakers`.
-    * `Pullover` to `Coat`, `Dress` to `Pullover`, `Coat` to `Pullover` and `Shirt`
-    * `Trousers` to `Dress`.
-    * `Bag` is predicted both as `T-shirt`, `Dress`, `Sandals`, etc, due to unusual shape in comparison with other classes.
+  * `Ankle boots` to `Sneakers`,  to `Sandals` to `Sneakers`.
+  * `Pullover` to `Coat`, `Dress` to `Pullover`, `Coat` to `Pullover` and `Shirt`
+  * `Trousers` to `Dress`.
+  * `Bag` is predicted both as `T-shirt`, `Dress`, `Sandals`, etc, due to unusual shape in comparison with other classes.
