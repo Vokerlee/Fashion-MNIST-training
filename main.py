@@ -2,11 +2,10 @@ import numpy as np
 import imageio
 import matplotlib
 import os
+import sys
 
 from IPython.core.interactiveshell import InteractiveShell
 InteractiveShell.ast_node_interactivity = "all"
-from IPython import display
-from pathlib import Path
 
 from matplotlib import pyplot as plt
 from matplotlib.gridspec  import GridSpec
@@ -172,8 +171,6 @@ class Trainer:
             self.i_epoch = i_epoch
             self.validate()
 
-            torch.save(self.net, "model.pth")
-
     def validate(self, show_conf_matrix=False, show_hard_samples=False):
         self.net.eval()
 
@@ -198,8 +195,8 @@ class Trainer:
 
         loss_mean = np.mean(np.array(loss_all))
         pred_all = np.argmax(np.concatenate(pred_all, axis=0), axis=1)
-        gt_all = np.concatenate(np.array(gt_all))
-        softmax_all = np.concatenate(np.array(softmax_all))
+        gt_all = np.concatenate(np.array(gt_all, dtype=object))
+        softmax_all = np.concatenate(np.array(softmax_all, dtype=object))
 
         if show_conf_matrix == True:
             conf_matrix = confusion_matrix(gt_all, pred_all)
@@ -288,16 +285,27 @@ class Trainer:
 
         self.gifs_list.append("epoch_visualization/" + filename)
 
+    def load(self):
+        self.net = torch.load("model.pth")
+
+    def save(self):
+        torch.save(self.net, "model.pth")
+
 def main():
+
     trainer = Trainer()
-    trainer.train(n_epochs=100)
+    if len(sys.argv) > 1 and sys.argv[1] == "load":
+        trainer.load()
+    else:
+        trainer.train(n_epochs=3)
+        trainer.save()
 
-    images = []
-    for filename in trainer.gifs_list:
-        image = imageio.imread(filename)
-        images.append(image)
+        images = []
+        for filename in trainer.gifs_list:
+            image = imageio.v2.imread(filename)
+            images.append(image)
 
-    imageio.mimsave('information_bottleneck.gif', images, duration = 0.2)
+        imageio.mimsave('information_bottleneck.gif', images, duration = 0.2)
 
     trainer.validate(show_conf_matrix=True, show_hard_samples=True)
 
