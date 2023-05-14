@@ -114,11 +114,11 @@ class Trainer:
 
         n_samples_per_class = 10 # total 10 classes
         for sample in self.val_dataset:
-            class_label = sample[1]
-            if len(self.index_to_class_dict[class_label]) < n_samples_per_class:
-                self.index_to_class_dict[class_label].append(sample)
+            class_index = sample[1]
+            if len(self.index_to_class_dict[class_index]) < n_samples_per_class:
+                self.index_to_class_dict[class_index].append(sample)
 
-        self.dataset_classes = [self.index_to_class[key] for key in self.index_to_class_dict.keys()]
+        self.dataset_classes = [self.index_to_class[key] for key in sorted(list(self.index_to_class_dict.keys()))]
         self.dataset_classes = [image_class.split('/')[0] for image_class in self.dataset_classes]
 
         batch_size = 1024
