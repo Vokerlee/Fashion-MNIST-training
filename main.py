@@ -3,6 +3,7 @@ import imageio
 import matplotlib
 import os
 import sys
+import shutil
 
 from IPython.core.interactiveshell import InteractiveShell
 InteractiveShell.ast_node_interactivity = "all"
@@ -108,16 +109,17 @@ class Trainer:
                                         transform=self.val_transform,
                                         download=True)
 
-        self.val_dataset_fixed_dict = defaultdict(list)
-        self.index_to_val = {index: image for image, index in self.val_dataset.class_to_idx.items()}
+        self.index_to_class_dict = defaultdict(list)
+        self.index_to_class = {index: image_class for image_class, index in self.val_dataset.class_to_idx.items()}
 
         n_samples_per_class = 10 # total 10 classes
         for sample in self.val_dataset:
             class_label = sample[1]
-            if len(self.val_dataset_fixed_dict[class_label]) < n_samples_per_class:
-                self.val_dataset_fixed_dict[class_label].append(sample)
+            if len(self.index_to_class_dict[class_label]) < n_samples_per_class:
+                self.index_to_class_dict[class_label].append(sample)
 
-        self.val_dataset_fixed = [self.index_to_val[key] for key in self.val_dataset_fixed_dict.keys()]
+        self.dataset_classes = [self.index_to_class[key] for key in self.index_to_class_dict.keys()]
+        self.dataset_classes = [image_class.split('/')[0] for image_class in self.dataset_classes]
 
         batch_size = 1024
         self.train_loader = data.DataLoader(self.train_dataset,
@@ -162,9 +164,9 @@ class Trainer:
 
                 # Samples visualization
                 if self.i_batch % 10 == 0:
-                  self.net.eval()
-                  self.visualize()
-                  self.net.train()
+                    self.net.eval()
+                    self.visualize()
+                    self.net.train()
 
                 self.i_batch += 1
 
@@ -200,15 +202,15 @@ class Trainer:
 
         if show_conf_matrix == True:
             conf_matrix = confusion_matrix(gt_all, pred_all)
-            disp = ConfusionMatrixDisplay(conf_matrix, display_labels=self.val_dataset_fixed)
+            disp = ConfusionMatrixDisplay(conf_matrix, display_labels=self.dataset_classes)
             figure, axes = plt.subplots(figsize=(FIGURE_XSIZE, FIGURE_XSIZE))
             disp.plot(ax=axes)
             plt.savefig("confusion_matrix.png")
 
         # Show top-5 hardest samples for each class
         if show_hard_samples == True:
-            if not os.path.exists(f"hard_samples"):
-                os.mkdir(f"hard_samples")
+            if not os.path.exists(f"hard_neg"):
+                os.mkdir(f"hard_neg")
 
             mis_classifications_indixes = [index for index in range(0, len(gt_all)) if pred_all[index] != gt_all[index]]
             class_misclassifications = defaultdict(list)
@@ -216,17 +218,17 @@ class Trainer:
                 class_label = self.val_dataset[index][1]
                 class_misclassifications[class_label].append([index, softmax_all[index]])
 
-            for class_label in range(0, len(self.val_dataset_fixed_dict)):
+            for class_label in range(0, len(self.index_to_class_dict)):
                 current_class_misses = sorted(class_misclassifications[class_label], key=lambda x: max(x[1]), reverse=True)
                 for i in range(0, min(5, len(current_class_misses))):
                     miss_label = np.argmax(current_class_misses[i][1])
 
                     current_sample = self.val_dataset[current_class_misses[i][0]]
-                    if not os.path.exists(f"hard_samples/class_label_{class_label + 1}"):
-                        os.mkdir(f"hard_samples/class_label_{class_label + 1}")
+                    if not os.path.exists(f"hard_neg/{self.dataset_classes[class_label]}"):
+                        os.mkdir(f"hard_neg/{self.dataset_classes[class_label]}")
 
-                    plt.imsave(f"hard_samples/class_label_{class_label + 1}/miss_label_{miss_label + 1}_{i + 1}.png", current_sample[0][0])
-                    file_softmax = open(f"hard_samples/class_label_{class_label + 1}/miss_label_{miss_label + 1}_{i + 1}.txt", "w+")
+                    plt.imsave(f"hard_neg/{self.dataset_classes[class_label]}/hard_neg_{i + 1}({self.dataset_classes[miss_label]}).png", current_sample[0][0])
+                    file_softmax = open(f"hard_neg/{self.dataset_classes[class_label]}/hard_neg_{i + 1}({self.dataset_classes[miss_label]}).txt", "w+")
                     file_softmax.write(f"softmax = {current_class_misses[i][1][miss_label]}")
                     file_softmax.close()
 
@@ -254,7 +256,7 @@ class Trainer:
         x = []
         y = []
 
-        for index, sample in self.val_dataset_fixed_dict.items():
+        for index, sample in self.index_to_class_dict.items():
             flatten_samples = [sample[i][0][None, :, :, :] for i in range(len(sample))]
             feature_batch = torch.cat(flatten_samples, 0).to(self.device)
 
@@ -266,11 +268,11 @@ class Trainer:
 
             axes.scatter(x, y, c=colors[index])
 
-        axes.legend(self.val_dataset_fixed,
+        axes.legend(self.dataset_classes,
                     framealpha=LEGEND_FRAME_ALPHA,
                     bbox_to_anchor=(1.15, 1.00))
 
-        axes.legend(self.val_dataset_fixed,
+        axes.legend(self.dataset_classes,
                     framealpha=LEGEND_FRAME_ALPHA,
                 bbox_to_anchor=(1.15, 1.00))
 
@@ -297,7 +299,7 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "load":
         trainer.load()
     else:
-        trainer.train(n_epochs=3)
+        trainer.train(n_epochs=100)
         trainer.save()
 
         images = []
@@ -306,6 +308,7 @@ def main():
             images.append(image)
 
         imageio.mimsave('information_bottleneck.gif', images, duration = 0.2)
+        shutil.rmtree("epoch_visualization")
 
     trainer.validate(show_conf_matrix=True, show_hard_samples=True)
 
